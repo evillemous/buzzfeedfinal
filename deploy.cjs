@@ -13,10 +13,7 @@ console.log('=== EMERGENCY DEPLOYMENT SCRIPT ===');
 // 1. Install essential dependencies
 console.log('1. Installing essential dependencies...');
 try {
-  execSync('npm install -g esbuild', {
-    stdio: 'inherit'
-  });
-  execSync('npm install express @neondatabase/serverless dotenv ws react', {
+  execSync('npm install express @neondatabase/serverless dotenv ws', {
     stdio: 'inherit'
   });
   console.log('✅ Essential dependencies installed');
@@ -24,42 +21,38 @@ try {
   console.error('Error installing dependencies:', err);
 }
 
-// 2. Copy server files
+// 2. Create dist directory
 console.log('2. Setting up server code...');
 try {
-  // Create a simple build script that doesn't use esbuild
-  console.log('Creating direct server file...');
-  
   // Create dist directory if it doesn't exist
   if (!fs.existsSync('./dist')) {
     fs.mkdirSync('./dist', { recursive: true });
   }
   
-  // Copy server files directly
-  execSync('cp -r ./server/* ./dist/', {
-    stdio: 'inherit'
-  });
-  
-  console.log('✅ Server files copied');
+  console.log('✅ Server structure created');
 } catch (err) {
-  console.error('Error copying server files:', err);
+  console.error('Error setting up server structure:', err);
   process.exit(1);
 }
 
-// 3. Fix NewsAPI and other issues
-console.log('3. Fixing server code issues...');
+// 3. Create ES Module compatible server file
+console.log('3. Creating server code...');
 try {
-  // Create an index.js file that imports the TypeScript files
+  // Create an index.js file using ES module syntax
   const serverIndexJs = `
 // Generated server index.js for production
-const express = require('express');
-const path = require('path');
-const { Pool } = require('@neondatabase/serverless');
-const dotenv = require('dotenv');
-const ws = require('ws');
+import express from 'express';
+import path from 'path';
+import { Pool } from '@neondatabase/serverless';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
 
 // Load environment variables
 dotenv.config();
+
+// ES Module fix for __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(express.json());
@@ -138,7 +131,7 @@ app.listen(PORT, () => {
 `;
   
   fs.writeFileSync('./dist/index.js', serverIndexJs);
-  console.log('✅ Server code created');
+  console.log('✅ Server code created using ES modules');
 } catch (err) {
   console.error('Error creating server code:', err);
 }

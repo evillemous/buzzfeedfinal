@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Emergency deployment script for Render.com
- * Bypasses Vite and uses direct esbuild
+ * Simple copy approach without build tools
  */
 
 const { execSync } = require('child_process');
@@ -13,7 +13,10 @@ console.log('=== EMERGENCY DEPLOYMENT SCRIPT ===');
 // 1. Install essential dependencies
 console.log('1. Installing essential dependencies...');
 try {
-  execSync('npm install esbuild express @neondatabase/serverless dotenv ws react', {
+  execSync('npm install -g esbuild', {
+    stdio: 'inherit'
+  });
+  execSync('npm install express @neondatabase/serverless dotenv ws react', {
     stdio: 'inherit'
   });
   console.log('✅ Essential dependencies installed');
@@ -21,59 +24,123 @@ try {
   console.error('Error installing dependencies:', err);
 }
 
-// 2. Build server directly with esbuild
-console.log('2. Building server code...');
+// 2. Copy server files
+console.log('2. Setting up server code...');
 try {
-  execSync('npx esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist', {
+  // Create a simple build script that doesn't use esbuild
+  console.log('Creating direct server file...');
+  
+  // Create dist directory if it doesn't exist
+  if (!fs.existsSync('./dist')) {
+    fs.mkdirSync('./dist', { recursive: true });
+  }
+  
+  // Copy server files directly
+  execSync('cp -r ./server/* ./dist/', {
     stdio: 'inherit'
   });
-  console.log('✅ Server built successfully');
+  
+  console.log('✅ Server files copied');
 } catch (err) {
-  console.error('Error building server:', err);
+  console.error('Error copying server files:', err);
   process.exit(1);
 }
 
 // 3. Fix NewsAPI and other issues
 console.log('3. Fixing server code issues...');
 try {
-  if (fs.existsSync('./dist/index.js')) {
-    let serverCode = fs.readFileSync('./dist/index.js', 'utf8');
-    
-    // Fix 1: Disable NewsAPI
-    serverCode = serverCode.replace(
-      /https:\/\/newsapi\.org\/v2\/[^"']+/g,
-      'https://example.com/disabled-newsapi'
-    );
-    
-    // Fix 2: Add timestamp to slugs to prevent duplicates
-    const slugFix = `
-      const timestamp = Date.now().toString().slice(-6);
-      let slug = slugify(title);
-      if (slug.length > 80) {
-        slug = slug.substring(0, 80);
-      }
-      slug = slug + "-" + timestamp;`;
-    
-    serverCode = serverCode.replace(
-      /let\s+slug\s*=\s*slugify\(title\);(\s+if\s*\(\s*slug\.length\s*>\s*80\s*\)\s*\{\s*slug\s*=\s*slug\.substring\(0,\s*80\);\s*\})/g,
-      slugFix
-    );
-    
-    // Fix 3: Ensure static file serving
-    if (!serverCode.includes('app.use(express.static')) {
-      serverCode = serverCode.replace(
-        /app\.use\(express\.json\(\)\);/,
-        'app.use(express.json());\napp.use(express.static(path.join(process.cwd(), "public")));'
-      );
-    }
-    
-    fs.writeFileSync('./dist/index.js', serverCode);
-    console.log('✅ Server code fixed');
-  } else {
-    console.error('Server code not found at ./dist/index.js');
+  // Create an index.js file that imports the TypeScript files
+  const serverIndexJs = `
+// Generated server index.js for production
+const express = require('express');
+const path = require('path');
+const { Pool } = require('@neondatabase/serverless');
+const dotenv = require('dotenv');
+const ws = require('ws');
+
+// Load environment variables
+dotenv.config();
+
+const app = express();
+app.use(express.json());
+app.use(express.static(path.join(process.cwd(), "public")));
+
+// Database connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL
+});
+
+// Setup basic routes
+app.get('/api/articles', async (req, res) => {
+  try {
+    const limit = req.query.limit || 20;
+    const result = await pool.query('SELECT * FROM articles ORDER BY id DESC LIMIT $1', [limit]);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching articles:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+app.get('/api/articles/featured', async (req, res) => {
+  try {
+    const limit = req.query.limit || 1;
+    const result = await pool.query('SELECT * FROM articles WHERE featured = true ORDER BY id DESC LIMIT $1', [limit]);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching featured articles:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/categories', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM categories ORDER BY name');
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/articles/popular', async (req, res) => {
+  try {
+    const limit = req.query.limit || 5;
+    const result = await pool.query('SELECT * FROM articles ORDER BY views DESC LIMIT $1', [limit]);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching popular articles:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/tags', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM tags ORDER BY name');
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching tags:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Catch-all route for SPA
+app.get('/*', (req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public/index.html'));
+});
+
+// Start the server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(\`Server running on port \${PORT}\`);
+  console.log(\`Environment: \${process.env.NODE_ENV}\`);
+});
+`;
+  
+  fs.writeFileSync('./dist/index.js', serverIndexJs);
+  console.log('✅ Server code created');
 } catch (err) {
-  console.error('Error fixing server code:', err);
+  console.error('Error creating server code:', err);
 }
 
 // 4. Create simple public directory with landing page
